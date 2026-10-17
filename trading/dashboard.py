@@ -1,12 +1,12 @@
 """State-of-the-art Web Application & Dashboard for Delta Exchange Trading System.
 
-Serves an interactive, premium dark-mode dashboard with:
-- Live ticker quotes & real-time updates for BTC, ETH, AAPL, NVDA, TSLA
+Features:
+- Native Real-Time Candlestick Chart powered directly by Delta Exchange WebSocket & Historical Candles
+- Live Ticker & Orderbook Stream from wss://socket.india.delta.exchange
 - Delta Exchange verified account info (UID 67545338, live balance $80.70)
 - Zero-risk paper trading execution & PnL tracking
 - Real-time Open Positions table with instant manual close
 - Strategy Signal scanner & execution trigger
-- TradingView live interactive chart
 - Risk Kernel guardrails monitor
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from trading.config import (
@@ -30,6 +31,7 @@ from trading.config import (
     DAILY_PROFIT_TARGET_USD,
     RISK_PER_TRADE_USD,
     DELTA_BASE_URL,
+    DELTA_WS_URL,
     DELTA_API_KEY,
 )
 from trading.delta_client import DeltaClient
@@ -55,6 +57,8 @@ market_cache = {}
 last_scan_time = None
 is_scanning = False
 
+JS_LIB_PATH = Path(__file__).parent / "lightweight-charts.js"
+
 
 def update_market_cache():
     """Background polling loop for market data and stop-loss checks."""
@@ -73,12 +77,11 @@ def update_market_cache():
                     "ask": ask,
                     "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
                 }
-            # Check paper positions against latest prices
             if router.mode == "paper":
                 paper_engine.evaluate_ticks(live_prices)
         except Exception as e:
             logger.error(f"Error in background market cache: {e}")
-        time.sleep(3)
+        time.sleep(2)
 
 
 def run_strategy_scan():
@@ -118,34 +121,33 @@ INDEX_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delta Quant — Automated Algorithmic Trading Terminal</title>
-    <meta name="description" content="Next-Generation algorithmic trading dashboard and execution engine for Delta Exchange.">
+    <title>Delta Quant — Real-Time Algorithmic Trading Terminal</title>
+    <meta name="description" content="Direct Real-Time WebSocket Trading Terminal for Delta Exchange with Live Candles and Risk Engine.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="/lightweight-charts.js"></script>
     <style>
         :root {
-            --bg-base: #080B11;
-            --bg-surface: #0E131F;
-            --bg-card: rgba(18, 25, 40, 0.75);
-            --bg-card-hover: rgba(26, 36, 56, 0.9);
+            --bg-base: #07090E;
+            --bg-surface: #0D111A;
+            --bg-card: rgba(16, 22, 34, 0.85);
+            --bg-card-hover: rgba(23, 32, 50, 0.95);
             --border: rgba(255, 255, 255, 0.08);
-            --border-highlight: rgba(56, 189, 248, 0.3);
+            --border-highlight: rgba(56, 189, 248, 0.4);
             --accent-cyan: #38BDF8;
-            --accent-blue: #3B82F6;
             --accent-green: #10B981;
-            --accent-green-glow: rgba(16, 185, 129, 0.2);
+            --accent-green-glow: rgba(16, 185, 129, 0.25);
             --accent-red: #EF4444;
-            --accent-red-glow: rgba(239, 68, 68, 0.2);
+            --accent-red-glow: rgba(239, 68, 68, 0.25);
             --accent-amber: #F59E0B;
             --text-primary: #F8FAFC;
             --text-secondary: #94A3B8;
             --text-muted: #64748B;
-            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-main: 'Inter', -apple-system, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
             --radius-sm: 8px;
             --radius-md: 12px;
-            --radius-lg: 16px;
         }
 
         * {
@@ -159,21 +161,20 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--text-primary);
             font-family: var(--font-main);
             min-height: 100vh;
-            overflow-x: hidden;
             background-image: 
-                radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
-                radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
+                radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.06) 0%, transparent 40%);
         }
 
-        /* Top Header */
+        /* Header */
         header {
             position: sticky;
             top: 0;
             z-index: 100;
             backdrop-filter: blur(16px);
-            background: rgba(8, 11, 17, 0.85);
+            background: rgba(7, 9, 14, 0.88);
             border-bottom: 1px solid var(--border);
-            padding: 14px 28px;
+            padding: 12px 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -194,13 +195,13 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: center;
             justify-content: center;
             font-weight: 800;
-            font-size: 18px;
+            font-size: 19px;
             color: #fff;
             box-shadow: 0 0 20px rgba(56, 189, 248, 0.35);
         }
 
         .brand-title {
-            font-size: 18px;
+            font-size: 17px;
             font-weight: 700;
             letter-spacing: -0.02em;
         }
@@ -215,26 +216,25 @@ INDEX_HTML = """<!DOCTYPE html>
         .header-meta {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
 
         .badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 12px;
+            padding: 5px 12px;
             border-radius: 9999px;
             font-size: 12px;
             font-weight: 600;
-            letter-spacing: 0.02em;
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
         }
 
-        .badge-live {
-            background: var(--accent-green-glow);
+        .badge-live-stream {
+            background: rgba(16, 185, 129, 0.12);
             color: var(--accent-green);
-            border-color: rgba(16, 185, 129, 0.3);
+            border-color: rgba(16, 185, 129, 0.35);
         }
 
         .badge-paper {
@@ -249,12 +249,12 @@ INDEX_HTML = """<!DOCTYPE html>
             border-radius: 50%;
             background: currentColor;
             box-shadow: 0 0 10px currentColor;
-            animation: pulse 2s infinite;
+            animation: pulse 1.5s infinite;
         }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.85); }
+            50% { opacity: 0.3; transform: scale(0.85); }
         }
 
         .btn {
@@ -284,14 +284,15 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .btn-outline {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(255, 255, 255, 0.04);
             border-color: var(--border);
             color: var(--text-primary);
         }
 
-        .btn-outline:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.2);
+        .btn-outline:hover, .btn-outline.active {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: var(--accent-cyan);
+            color: #fff;
         }
 
         .btn-sm {
@@ -311,21 +312,21 @@ INDEX_HTML = """<!DOCTYPE html>
             color: #fff;
         }
 
-        /* Container & Layout */
+        /* Layout */
         .dashboard-container {
-            max-width: 1600px;
+            max-width: 1650px;
             margin: 0 auto;
-            padding: 24px;
+            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 20px;
         }
 
         /* KPI Row */
         .kpi-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 16px;
+            gap: 14px;
         }
 
         .kpi-card {
@@ -333,7 +334,7 @@ INDEX_HTML = """<!DOCTYPE html>
             backdrop-filter: blur(12px);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 20px;
+            padding: 18px 20px;
             position: relative;
             overflow: hidden;
             transition: transform 0.2s ease, border-color 0.2s ease;
@@ -344,32 +345,13 @@ INDEX_HTML = """<!DOCTYPE html>
             transform: translateY(-2px);
         }
 
-        .kpi-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 3px;
-            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        .kpi-card:hover::before {
-            opacity: 1;
-        }
-
         .kpi-label {
             font-size: 12px;
             font-weight: 600;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.06em;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            margin-bottom: 6px;
         }
 
         .kpi-value {
@@ -382,14 +364,68 @@ INDEX_HTML = """<!DOCTYPE html>
         .kpi-subtext {
             font-size: 12px;
             color: var(--text-secondary);
-            margin-top: 6px;
+            margin-top: 4px;
+        }
+
+        /* Ticker Strip */
+        .ticker-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
+        }
+
+        .ticker-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .ticker-card:hover, .ticker-card.active {
+            background: rgba(56, 189, 248, 0.08);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
+
+        .ticker-symbol {
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .ticker-price {
+            font-family: var(--font-mono);
+            font-size: 19px;
+            font-weight: 700;
+            margin: 6px 0 4px;
+            transition: color 0.3s;
+        }
+
+        .ticker-price.flash-green {
+            color: var(--accent-green) !important;
+        }
+
+        .ticker-price.flash-red {
+            color: var(--accent-red) !important;
+        }
+
+        .ticker-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
         }
 
         /* Main Grid */
         .main-grid {
             display: grid;
-            grid-template-columns: 2.2fr 1fr;
-            gap: 24px;
+            grid-template-columns: 2.4fr 1fr;
+            gap: 20px;
         }
 
         @media (max-width: 1200px) {
@@ -410,7 +446,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .panel-header {
-            padding: 16px 20px;
+            padding: 14px 18px;
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
@@ -427,61 +463,64 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .panel-body {
-            padding: 20px;
+            padding: 18px;
         }
 
-        /* Market Tickers Strip */
-        .ticker-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-
-        .ticker-card {
-            background: rgba(255, 255, 255, 0.025);
-            border: 1px solid var(--border);
+        /* Native Chart Section */
+        .chart-wrapper {
+            position: relative;
+            background: #0B0E17;
             border-radius: var(--radius-sm);
-            padding: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            border: 1px solid var(--border);
+            overflow: hidden;
         }
 
-        .ticker-card:hover, .ticker-card.active {
-            background: rgba(56, 189, 248, 0.08);
-            border-color: var(--accent-cyan);
-        }
-
-        .ticker-symbol {
-            font-weight: 700;
-            font-size: 14px;
+        .chart-header-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            padding: 10px 16px;
+            background: rgba(14, 19, 31, 0.9);
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
         }
 
-        .ticker-price {
-            font-family: var(--font-mono);
-            font-size: 18px;
-            font-weight: 600;
-            margin: 6px 0 4px;
-        }
-
-        .ticker-meta {
-            font-size: 11px;
-            color: var(--text-muted);
+        .chart-legend {
             display: flex;
-            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            font-family: var(--font-mono);
+            font-size: 12px;
         }
 
-        /* TradingView Embed */
-        .chart-container {
-            height: 480px;
+        .chart-canvas-container {
             width: 100%;
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-            border: 1px solid var(--border);
-            margin-bottom: 24px;
+            height: 480px;
+            position: relative;
+        }
+
+        .chart-watermark {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            pointer-events: none;
+            z-index: 5;
+            font-family: var(--font-mono);
+        }
+
+        .chart-watermark-symbol {
+            font-size: 32px;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.05);
+            letter-spacing: -0.03em;
+        }
+
+        .chart-watermark-feed {
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(56, 189, 248, 0.4);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
         }
 
         /* Tables */
@@ -534,7 +573,7 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--accent-red);
         }
 
-        /* Quick Order Form */
+        /* Forms */
         .form-group {
             margin-bottom: 14px;
         }
@@ -608,7 +647,6 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--accent-cyan);
         }
 
-        /* Value Colors */
         .text-green { color: var(--accent-green); }
         .text-red { color: var(--accent-red); }
         .text-cyan { color: var(--accent-cyan); }
@@ -622,17 +660,20 @@ INDEX_HTML = """<!DOCTYPE html>
             <div class="brand-logo">&#916;</div>
             <div>
                 <div class="brand-title">DELTA QUANT</div>
-                <div class="brand-subtitle">Automated Derivatives & Stock Perpetuals</div>
+                <div class="brand-subtitle">Real-Time Derivatives Engine</div>
             </div>
         </div>
 
         <div class="header-meta">
+            <div class="badge badge-live-stream" id="wsConnectionBadge">
+                <div class="dot-indicator"></div>
+                <span id="wsStatusText">DELTA WS: CONNECTED</span>
+            </div>
             <div class="badge" id="accountBadge">
                 <span>UID: <strong>67545338</strong> (Verified)</span>
             </div>
-            <div class="badge badge-paper" id="modeBadge">
-                <div class="dot-indicator"></div>
-                <span id="modeText">PAPER TRADING</span>
+            <div class="badge badge-paper">
+                <span>MODE: <strong>PAPER TRADING</strong></span>
             </div>
             <button class="btn btn-primary" id="btnScan" onclick="triggerScan()">
                 <span id="scanSpinner" style="display:none;">&#8635;</span> Run Strategy Scan
@@ -659,48 +700,71 @@ INDEX_HTML = """<!DOCTYPE html>
             <div class="kpi-card">
                 <div class="kpi-label">Today's Realized P&L</div>
                 <div class="kpi-value" id="valTodayPnl">$0.00</div>
-                <div class="kpi-subtext" id="valDailyLimits">Target: +$300 | Stop: -$150</div>
+                <div class="kpi-subtext">Target: +$300 | Stop: -$150</div>
             </div>
 
             <div class="kpi-card">
-                <div class="kpi-label">Open Positions / Trades</div>
+                <div class="kpi-label">Active Positions / Trades</div>
                 <div class="kpi-value" id="valPositionCount">0 <span style="font-size:16px; color:var(--text-muted);">/ 3 Max</span></div>
                 <div class="kpi-subtext" id="valTradesCount">Trades today: 0</div>
             </div>
         </div>
 
-        <!-- Live Tickers Strip -->
+        <!-- Real-Time Tickers Strip -->
         <div class="ticker-strip" id="tickerStrip">
-            <!-- Dynamically populated -->
+            <!-- Dynamically populated from Delta live WebSocket -->
         </div>
 
         <!-- Main Layout -->
         <div class="main-grid">
 
-            <!-- Left Column: Chart & Positions -->
-            <div style="display:flex; flex-direction:column; gap:24px;">
+            <!-- Left: Native Real-Time Delta Candlestick Chart & Positions -->
+            <div style="display:flex; flex-direction:column; gap:20px;">
 
-                <!-- TradingView Chart -->
+                <!-- Real-Time Candlestick Chart -->
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
-                            <span>Interactive Market Chart</span>
-                            <span id="selectedChartSym" class="badge" style="font-size:11px;">BTCUSD</span>
+                            <span>Delta Exchange Live Candlestick Feed</span>
+                            <span class="badge badge-live-stream" style="font-size:10px;" id="chartSymbolBadge">BTCUSD &bull; 5m</span>
                         </div>
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-outline btn-sm" onclick="switchChart('BTCUSD')">BTC</button>
-                            <button class="btn btn-outline btn-sm" onclick="switchChart('ETHUSD')">ETH</button>
-                            <button class="btn btn-outline btn-sm" onclick="switchChart('AAPLXUSD')">AAPL</button>
-                            <button class="btn btn-outline btn-sm" onclick="switchChart('NVDAXUSD')">NVDA</button>
-                            <button class="btn btn-outline btn-sm" onclick="switchChart('TSLAXUSD')">TSLA</button>
+                        <div style="display:flex; gap:6px;">
+                            <!-- Timeframe buttons -->
+                            <button class="btn btn-outline btn-sm" id="tf_1m" onclick="switchTimeframe('1m')">1m</button>
+                            <button class="btn btn-outline btn-sm active" id="tf_5m" onclick="switchTimeframe('5m')">5m</button>
+                            <button class="btn btn-outline btn-sm" id="tf_15m" onclick="switchTimeframe('15m')">15m</button>
+                            <button class="btn btn-outline btn-sm" id="tf_1h" onclick="switchTimeframe('1h')">1h</button>
+                            <button class="btn btn-outline btn-sm" id="tf_1d" onclick="switchTimeframe('1d')">1D</button>
                         </div>
                     </div>
+
                     <div class="panel-body" style="padding:12px;">
-                        <div class="chart-container" id="tv_chart"></div>
+                        <div class="chart-wrapper">
+                            <div class="chart-header-bar">
+                                <div class="chart-legend" id="chartLegend">
+                                    <span style="color:#fff; font-weight:700;" id="legSym">BTCUSD</span>
+                                    <span>O: <span id="legO" class="text-cyan">--</span></span>
+                                    <span>H: <span id="legH" class="text-cyan">--</span></span>
+                                    <span>L: <span id="legL" class="text-cyan">--</span></span>
+                                    <span>C: <span id="legC" class="text-cyan">--</span></span>
+                                    <span>LTP: <strong id="legLTP" class="text-green" style="font-size:13px;">--</strong></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:11px; color:var(--text-muted);">EMA 200: <span style="color:#F59E0B;" id="legEma200">--</span></span>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-watermark">
+                                <div class="chart-watermark-symbol" id="watermarkSym">BTCUSD</div>
+                                <div class="chart-watermark-feed">&#9679; DIRECT DELTA EXCHANGE WEBSOCKET</div>
+                            </div>
+
+                            <div class="chart-canvas-container" id="chartContainer"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Active Open Positions -->
+                <!-- Active Open Positions Table -->
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">Active Open Positions (Trailing Stop Armed)</div>
@@ -724,7 +788,7 @@ INDEX_HTML = """<!DOCTYPE html>
                                 </thead>
                                 <tbody id="positionsTableBody">
                                     <tr>
-                                        <td colspan="10" style="text-align:center; color:var(--text-muted); padding:32px;">
+                                        <td colspan="10" style="text-align:center; color:var(--text-muted); padding:28px;">
                                             No active open positions. The bot will open positions upon breakout signal.
                                         </td>
                                     </tr>
@@ -754,9 +818,7 @@ INDEX_HTML = """<!DOCTYPE html>
                                         <th>Net P&L</th>
                                     </tr>
                                 </thead>
-                                <tbody id="historyTableBody">
-                                    <!-- Populated via API -->
-                                </tbody>
+                                <tbody id="historyTableBody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -764,8 +826,8 @@ INDEX_HTML = """<!DOCTYPE html>
 
             </div>
 
-            <!-- Right Column: Quick Order & Signals Stream -->
-            <div style="display:flex; flex-direction:column; gap:24px;">
+            <!-- Right: Quick Order, Signals Stream, Risk Kernel -->
+            <div style="display:flex; flex-direction:column; gap:20px;">
 
                 <!-- Quick Manual Paper Order -->
                 <div class="panel">
@@ -803,16 +865,16 @@ INDEX_HTML = """<!DOCTYPE html>
                             <div class="form-row">
                                 <div class="form-group">
                                     <label class="form-label">Stop Loss ($)</label>
-                                    <input type="number" step="0.01" class="form-control" id="orderSL" placeholder="Optional">
+                                    <input type="number" step="0.01" class="form-control" id="orderSL" placeholder="Auto calculated">
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Take Profit ($)</label>
-                                    <input type="number" step="0.01" class="form-control" id="orderTP" placeholder="Optional">
+                                    <input type="number" step="0.01" class="form-control" id="orderTP" placeholder="Auto calculated">
                                 </div>
                             </div>
 
-                            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:8px;">
-                                Submit Order
+                            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:6px;">
+                                Submit Paper Order
                             </button>
                         </form>
                     </div>
@@ -837,7 +899,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">Safety Risk Kernel</div>
-                        <span class="badge badge-live" style="font-size:10px;">ACTIVE</span>
+                        <span class="badge badge-live-stream" style="font-size:10px;">ACTIVE</span>
                     </div>
                     <div class="panel-body" style="font-size:12px; display:flex; flex-direction:column; gap:8px;">
                         <div style="display:flex; justify-content:space-between;">
@@ -869,96 +931,308 @@ INDEX_HTML = """<!DOCTYPE html>
 
     </div>
 
-    <!-- TradingView Widget Script -->
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <!-- Charting & Real-Time WebSocket Logic -->
     <script>
-        let currentChartSymbol = 'BTCUSD';
+        const WATCHLIST = ["BTCUSD", "ETHUSD", "AAPLXUSD", "NVDAXUSD", "TSLAXUSD"];
+        let currentSymbol = "BTCUSD";
+        let currentResolution = "5m";
+        let chart = null;
+        let candleSeries = null;
+        let ema200Series = null;
+        let currentBar = null;
+        let deltaSocket = null;
+        let previousPrices = {};
 
-        function loadTradingViewWidget(symbol) {
-            let tvSymbol = 'BINANCE:BTCUSDT';
-            if (symbol === 'BTCUSD') tvSymbol = 'BINANCE:BTCUSDT';
-            else if (symbol === 'ETHUSD') tvSymbol = 'BINANCE:ETHUSDT';
-            else if (symbol === 'AAPLXUSD') tvSymbol = 'NASDAQ:AAPL';
-            else if (symbol === 'NVDAXUSD') tvSymbol = 'NASDAQ:NVDA';
-            else if (symbol === 'TSLAXUSD') tvSymbol = 'NASDAQ:TSLA';
+        // 1. Initialize Lightweight Charts
+        function initChart() {
+            const container = document.getElementById("chartContainer");
+            container.innerHTML = "";
 
-            document.getElementById('tv_chart').innerHTML = '';
-            new TradingView.widget({
-                "autosize": true,
-                "symbol": tvSymbol,
-                "interval": "15",
-                "timezone": "Etc/UTC",
-                "theme": "dark",
-                "style": "1",
-                "locale": "en",
-                "toolbar_bg": "#0E131F",
-                "enable_publishing": false,
-                "hide_top_toolbar": false,
-                "save_image": false,
-                "container_id": "tv_chart"
+            chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 480,
+                layout: {
+                    background: { color: "#0B0E17" },
+                    textColor: "#94A3B8",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11,
+                },
+                grid: {
+                    vertLines: { color: "rgba(255, 255, 255, 0.04)" },
+                    horzLines: { color: "rgba(255, 255, 255, 0.04)" },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: { color: "rgba(56, 189, 248, 0.5)", width: 1, style: 2 },
+                    horzLine: { color: "rgba(56, 189, 248, 0.5)", width: 1, style: 2 },
+                },
+                timeScale: {
+                    borderColor: "rgba(255, 255, 255, 0.08)",
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                rightPriceScale: {
+                    borderColor: "rgba(255, 255, 255, 0.08)",
+                    scaleMargins: { top: 0.1, bottom: 0.1 },
+                },
             });
-            document.getElementById('selectedChartSym').innerText = symbol;
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: "#10B981",
+                downColor: "#EF4444",
+                borderUpColor: "#10B981",
+                borderDownColor: "#EF4444",
+                wickUpColor: "#10B981",
+                wickDownColor: "#EF4444",
+            });
+
+            ema200Series = chart.addLineSeries({
+                color: "#F59E0B",
+                lineWidth: 2,
+                title: "EMA 200",
+            });
+
+            window.addEventListener("resize", () => {
+                if (chart && container) {
+                    chart.applyOptions({ width: container.clientWidth });
+                }
+            });
+
+            // Crosshair move listener for OHLC legend
+            chart.subscribeCrosshairMove(param => {
+                if (!param || !param.time || !param.seriesData.get(candleSeries)) {
+                    updateLegendWithLatest();
+                    return;
+                }
+                const data = param.seriesData.get(candleSeries);
+                document.getElementById("legO").innerText = Number(data.open).toFixed(2);
+                document.getElementById("legH").innerText = Number(data.high).toFixed(2);
+                document.getElementById("legL").innerText = Number(data.low).toFixed(2);
+                document.getElementById("legC").innerText = Number(data.close).toFixed(2);
+                const emaVal = param.seriesData.get(ema200Series);
+                document.getElementById("legEma200").innerText = emaVal ? Number(emaVal.value).toFixed(2) : "--";
+            });
         }
 
-        function switchChart(sym) {
-            currentChartSymbol = sym;
-            loadTradingViewWidget(sym);
+        function updateLegendWithLatest() {
+            if (!currentBar) return;
+            document.getElementById("legSym").innerText = currentSymbol;
+            document.getElementById("legO").innerText = Number(currentBar.open).toFixed(2);
+            document.getElementById("legH").innerText = Number(currentBar.high).toFixed(2);
+            document.getElementById("legL").innerText = Number(currentBar.low).toFixed(2);
+            document.getElementById("legC").innerText = Number(currentBar.close).toFixed(2);
+            document.getElementById("legLTP").innerText = "$" + Number(currentBar.close).toLocaleString("en-US", {minimumFractionDigits: 2});
         }
 
-        // Fetch state every 3 seconds
+        // 2. Load Historical Candles from Delta REST API
+        async function loadHistoricalCandles(symbol, resolution) {
+            try {
+                const res = await fetch(`/api/candles?symbol=${symbol}&resolution=${resolution}`);
+                const data = await res.json();
+                if (data.candles && data.candles.length > 0) {
+                    candleSeries.setData(data.candles);
+                    currentBar = data.candles[data.candles.length - 1];
+
+                    // Calculate 200 EMA
+                    if (data.candles.length >= 50) {
+                        const emaData = calculateEMA(data.candles, Math.min(200, Math.floor(data.candles.length / 2)));
+                        ema200Series.setData(emaData);
+                    }
+                    chart.timeScale().fitContent();
+                    updateLegendWithLatest();
+                }
+            } catch (e) {
+                console.error("Failed to load candles:", e);
+            }
+        }
+
+        function calculateEMA(candles, period) {
+            const k = 2 / (period + 1);
+            let ema = candles[0].close;
+            const res = [];
+            for (let i = 0; i < candles.length; i++) {
+                ema = (candles[i].close * k) + (ema * (1 - k));
+                if (i >= period - 1) {
+                    res.push({ time: candles[i].time, value: ema });
+                }
+            }
+            return res;
+        }
+
+        // 3. Connect to Delta Exchange Real-Time WebSocket
+        function connectDeltaWebSocket() {
+            const wsUrl = "wss://socket.india.delta.exchange";
+            console.log("Connecting to Delta Exchange WebSocket:", wsUrl);
+            deltaSocket = new WebSocket(wsUrl);
+
+            deltaSocket.onopen = () => {
+                console.log("Delta Exchange WebSocket connected successfully!");
+                document.getElementById("wsStatusText").innerText = "DELTA WS: LIVE FEED ACTIVE";
+                document.getElementById("wsConnectionBadge").className = "badge badge-live-stream";
+
+                // Subscribe to live tickers & 1m/5m candlesticks for watchlist
+                const subMsg = {
+                    type: "subscribe",
+                    payload: {
+                        channels: [
+                            { name: "v2/ticker", symbols: WATCHLIST },
+                            { name: "candlestick_1m", symbols: WATCHLIST }
+                        ]
+                    }
+                };
+                deltaSocket.send(JSON.stringify(subMsg));
+            };
+
+            deltaSocket.onmessage = event => {
+                try {
+                    const msg = JSON.parse(event.data);
+
+                    // A. Live Ticker Event
+                    if (msg.type === "v2/ticker" || msg.symbol) {
+                        const sym = msg.symbol;
+                        const ltp = parseFloat(msg.close || msg.mark_price || 0);
+                        if (sym && ltp > 0) {
+                            updateTickerStripCard(sym, ltp, msg.quotes);
+
+                            // If this ticker is the active chart symbol, update the current candle
+                            if (sym === currentSymbol && currentBar) {
+                                currentBar.close = ltp;
+                                currentBar.high = Math.max(currentBar.high, ltp);
+                                currentBar.low = Math.min(currentBar.low, ltp);
+                                candleSeries.update(currentBar);
+                                updateLegendWithLatest();
+                            }
+                        }
+                    }
+
+                    // B. Native Candlestick Event from Delta
+                    if (msg.type === "candlestick_1m" && msg.symbol === currentSymbol) {
+                        const barTime = Math.floor(msg.timestamp / 1000000 / 60) * 60;
+                        const candleUpdate = {
+                            time: barTime,
+                            open: parseFloat(msg.open),
+                            high: parseFloat(msg.high),
+                            low: parseFloat(msg.low),
+                            close: parseFloat(msg.close)
+                        };
+                        currentBar = candleUpdate;
+                        candleSeries.update(candleUpdate);
+                        updateLegendWithLatest();
+                    }
+                } catch (e) {
+                    console.error("Error processing WS frame:", e);
+                }
+            };
+
+            deltaSocket.onclose = () => {
+                console.warn("Delta WebSocket disconnected. Reconnecting in 3s...");
+                document.getElementById("wsStatusText").innerText = "DELTA WS: RECONNECTING...";
+                document.getElementById("wsConnectionBadge").className = "badge";
+                setTimeout(connectDeltaWebSocket, 3000);
+            };
+
+            deltaSocket.onerror = err => {
+                console.error("Delta WebSocket error:", err);
+            };
+        }
+
+        function updateTickerStripCard(sym, ltp, quotes) {
+            const el = document.getElementById("price_" + sym);
+            if (!el) return;
+            const prev = previousPrices[sym] || ltp;
+            el.innerText = "$" + Number(ltp).toLocaleString("en-US", {minimumFractionDigits: 2});
+
+            if (ltp > prev) {
+                el.classList.add("flash-green");
+                setTimeout(() => el.classList.remove("flash-green"), 500);
+            } else if (ltp < prev) {
+                el.classList.add("flash-red");
+                setTimeout(() => el.classList.remove("flash-red"), 500);
+            }
+            previousPrices[sym] = ltp;
+
+            if (quotes) {
+                const bEl = document.getElementById("bid_" + sym);
+                const aEl = document.getElementById("ask_" + sym);
+                if (bEl && quotes.best_bid) bEl.innerText = "B: $" + quotes.best_bid;
+                if (aEl && quotes.best_ask) aEl.innerText = "A: $" + quotes.best_ask;
+            }
+        }
+
+        function switchSymbol(sym) {
+            currentSymbol = sym;
+            document.getElementById("chartSymbolBadge").innerText = `${sym} • ${currentResolution}`;
+            document.getElementById("watermarkSym").innerText = sym;
+            document.getElementById("legSym").innerText = sym;
+            document.getElementById("orderSymbol").value = sym;
+
+            // Update active state in ticker strip
+            WATCHLIST.forEach(s => {
+                const card = document.getElementById("card_" + s);
+                if (card) card.className = "ticker-card" + (s === sym ? " active" : "");
+            });
+
+            loadHistoricalCandles(sym, currentResolution);
+        }
+
+        function switchTimeframe(res) {
+            currentResolution = res;
+            ["1m", "5m", "15m", "1h", "1d"].forEach(r => {
+                const btn = document.getElementById("tf_" + r);
+                if (btn) btn.className = "btn btn-outline btn-sm" + (r === res ? " active" : "");
+            });
+            document.getElementById("chartSymbolBadge").innerText = `${currentSymbol} • ${res}`;
+            loadHistoricalCandles(currentSymbol, res);
+        }
+
+        // Render Ticker Strip Cards
+        function initTickerStrip() {
+            const strip = document.getElementById("tickerStrip");
+            strip.innerHTML = WATCHLIST.map(sym => `
+                <div class="ticker-card ${sym === currentSymbol ? 'active' : ''}" id="card_${sym}" onclick="switchSymbol('${sym}')">
+                    <div class="ticker-symbol">
+                        <span>${sym}</span>
+                        <span style="font-size:10px; color:var(--text-muted);">&#9656; Live Chart</span>
+                    </div>
+                    <div class="ticker-price" id="price_${sym}">Loading...</div>
+                    <div class="ticker-meta">
+                        <span id="bid_${sym}">B: --</span>
+                        <span id="ask_${sym}">A: --</span>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        // Dashboard State Poller (for Positions, Ledger, Balance)
         async function fetchDashboardState() {
             try {
-                const res = await fetch('/api/state');
+                const res = await fetch("/api/state");
                 const data = await res.json();
                 renderState(data);
             } catch (e) {
-                console.error("Dashboard poll error:", e);
+                console.error("Dashboard state fetch error:", e);
             }
         }
 
         function renderState(data) {
-            // KPIs
-            document.getElementById('valPaperBalance').innerText = '$' + Number(data.paper_balance).toLocaleString('en-US', {minimumFractionDigits: 2});
+            document.getElementById("valPaperBalance").innerText = "$" + Number(data.paper_balance).toLocaleString("en-US", {minimumFractionDigits: 2});
             const pnl = Number(data.today_pnl);
-            const pnlEl = document.getElementById('valTodayPnl');
-            pnlEl.innerText = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
-            pnlEl.className = 'kpi-value ' + (pnl > 0 ? 'text-green' : (pnl < 0 ? 'text-red' : ''));
+            const pnlEl = document.getElementById("valTodayPnl");
+            pnlEl.innerText = (pnl >= 0 ? "+" : "") + "$" + pnl.toFixed(2);
+            pnlEl.className = "kpi-value " + (pnl > 0 ? "text-green" : (pnl < 0 ? "text-red" : ""));
 
-            document.getElementById('valPositionCount').innerHTML = data.open_positions.length + ' <span style="font-size:16px; color:var(--text-muted);">/ 3 Max</span>';
-            document.getElementById('valTradesCount').innerText = 'Trades today: ' + data.trade_count;
-
-            // Tickers Strip
-            const strip = document.getElementById('tickerStrip');
-            strip.innerHTML = '';
-            for (const sym of data.watchlist) {
-                const tick = data.market[sym] || {};
-                const ltp = tick.ltp ? '$' + Number(tick.ltp).toLocaleString() : 'Loading...';
-                const card = document.createElement('div');
-                card.className = 'ticker-card' + (sym === currentChartSymbol ? ' active' : '');
-                card.onclick = () => switchChart(sym);
-                card.innerHTML = `
-                    <div class="ticker-symbol">
-                        <span>${sym}</span>
-                        <span style="font-size:10px; color:var(--text-muted);">&#9656; Chart</span>
-                    </div>
-                    <div class="ticker-price">${ltp}</div>
-                    <div class="ticker-meta">
-                        <span>B: $${tick.bid || 0}</span>
-                        <span>A: $${tick.ask || 0}</span>
-                    </div>
-                `;
-                strip.appendChild(card);
-            }
+            document.getElementById("valPositionCount").innerHTML = data.open_positions.length + ' <span style="font-size:16px; color:var(--text-muted);">/ 3 Max</span>';
+            document.getElementById("valTradesCount").innerText = "Trades today: " + data.trade_count;
 
             // Positions Table
-            const posBody = document.getElementById('positionsTableBody');
+            const posBody = document.getElementById("positionsTableBody");
             if (data.open_positions.length === 0) {
-                posBody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:32px;">No active open positions. The bot will open positions upon breakout signal.</td></tr>`;
+                posBody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:28px;">No active open positions. The bot will open positions upon breakout signal.</td></tr>`;
             } else {
                 posBody.innerHTML = data.open_positions.map(p => {
                     const uPnl = Number(p.pnl);
-                    const pnlClass = uPnl >= 0 ? 'text-green' : 'text-red';
-                    const sideClass = p.side === 'BUY' ? 'pill-buy' : 'pill-sell';
+                    const pnlClass = uPnl >= 0 ? "text-green" : "text-red";
+                    const sideClass = p.side === "BUY" ? "pill-buy" : "pill-sell";
                     return `
                         <tr>
                             <td>${p.trade_id}</td>
@@ -969,23 +1243,23 @@ INDEX_HTML = """<!DOCTYPE html>
                             <td>$${Number(p.mark_price).toFixed(2)}</td>
                             <td>$${Number(p.stop_loss).toFixed(2)}</td>
                             <td>$${Number(p.take_profit).toFixed(2)}</td>
-                            <td class="${pnlClass}">${uPnl >= 0 ? '+' : ''}$${uPnl.toFixed(2)}</td>
+                            <td class="${pnlClass}">${uPnl >= 0 ? "+" : ""}$${uPnl.toFixed(2)}</td>
                             <td>
                                 <button class="btn btn-danger btn-sm" onclick="closePosition('${p.trade_id}')">Close</button>
                             </td>
                         </tr>
                     `;
-                }).join('');
+                }).join("");
             }
 
             // History Table
-            const histBody = document.getElementById('historyTableBody');
+            const histBody = document.getElementById("historyTableBody");
             if (data.history && data.history.length > 0) {
                 histBody.innerHTML = data.history.map(h => {
                     const rPnl = Number(h.realized_pnl);
-                    const pnlClass = rPnl >= 0 ? 'text-green' : 'text-red';
-                    const sideClass = h.side === 'BUY' ? 'pill-buy' : 'pill-sell';
-                    const timeStr = h.timestamp ? h.timestamp.split('T')[1]?.split('.')[0] : '';
+                    const pnlClass = rPnl >= 0 ? "text-green" : "text-red";
+                    const sideClass = h.side === "BUY" ? "pill-buy" : "pill-sell";
+                    const timeStr = h.timestamp ? h.timestamp.split("T")[1]?.split(".")[0] : "";
                     return `
                         <tr>
                             <td>${timeStr}</td>
@@ -994,16 +1268,16 @@ INDEX_HTML = """<!DOCTYPE html>
                             <td>${h.contracts}</td>
                             <td>$${Number(h.entry_price).toFixed(2)}</td>
                             <td>$${Number(h.exit_price || 0).toFixed(2)}</td>
-                            <td style="color:var(--text-muted);">${h.exit_reason || 'N/A'}</td>
-                            <td class="${pnlClass}">${rPnl >= 0 ? '+' : ''}$${rPnl.toFixed(2)}</td>
+                            <td style="color:var(--text-muted);">${h.exit_reason || "N/A"}</td>
+                            <td class="${pnlClass}">${rPnl >= 0 ? "+" : ""}$${rPnl.toFixed(2)}</td>
                         </tr>
                     `;
-                }).join('');
+                }).join("");
             }
 
             // Signals Feed
             if (data.signals && data.signals.length > 0) {
-                const sigList = document.getElementById('signalsList');
+                const sigList = document.getElementById("signalsList");
                 sigList.innerHTML = data.signals.map(s => `
                     <div class="signal-item">
                         <div class="signal-header">
@@ -1014,31 +1288,31 @@ INDEX_HTML = """<!DOCTYPE html>
                         <div class="signal-dispatch">&bull; Entry: $${s.entry_price} | SL: $${s.stop_loss} | TP: $${s.take_profit}</div>
                         <div class="signal-dispatch">&bull; Dispatch: ${s.dispatch_detail || s.status}</div>
                     </div>
-                `).join('');
+                `).join("");
             }
             if (data.last_scan_time) {
-                document.getElementById('scanTimeBadge').innerText = 'LAST: ' + data.last_scan_time;
+                document.getElementById("scanTimeBadge").innerText = "LAST: " + data.last_scan_time;
             }
         }
 
         async function triggerScan() {
-            const btn = document.getElementById('btnScan');
+            const btn = document.getElementById("btnScan");
             btn.disabled = true;
-            document.getElementById('scanSpinner').style.display = 'inline';
+            document.getElementById("scanSpinner").style.display = "inline";
             try {
-                await fetch('/api/scan', { method: 'POST' });
+                await fetch("/api/scan", { method: "POST" });
                 await fetchDashboardState();
             } finally {
                 btn.disabled = false;
-                document.getElementById('scanSpinner').style.display = 'none';
+                document.getElementById("scanSpinner").style.display = "none";
             }
         }
 
         async function closePosition(tradeId) {
-            if (!confirm('Close position ' + tradeId + ' immediately at market price?')) return;
-            await fetch('/api/close', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            if (!confirm("Close position " + tradeId + " immediately at market price?")) return;
+            await fetch("/api/close", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ trade_id: tradeId })
             });
             fetchDashboardState();
@@ -1046,24 +1320,27 @@ INDEX_HTML = """<!DOCTYPE html>
 
         async function submitManualOrder(e) {
             e.preventDefault();
-            const symbol = document.getElementById('orderSymbol').value;
-            const side = document.getElementById('orderSide').value;
-            const size = parseInt(document.getElementById('orderSize').value, 10);
-            const sl = parseFloat(document.getElementById('orderSL').value) || 0;
-            const tp = parseFloat(document.getElementById('orderTP').value) || 0;
+            const symbol = document.getElementById("orderSymbol").value;
+            const side = document.getElementById("orderSide").value;
+            const size = parseInt(document.getElementById("orderSize").value, 10);
+            const sl = parseFloat(document.getElementById("orderSL").value) || 0;
+            const tp = parseFloat(document.getElementById("orderTP").value) || 0;
 
-            const res = await fetch('/api/order', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+            const res = await fetch("/api/order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ symbol, side, contracts: size, stop_loss: sl, take_profit: tp })
             });
             const result = await res.json();
-            alert('Order response: ' + JSON.stringify(result));
+            alert("Order response: " + JSON.stringify(result));
             fetchDashboardState();
         }
 
         window.onload = () => {
-            loadTradingViewWidget('BTCUSD');
+            initTickerStrip();
+            initChart();
+            loadHistoricalCandles(currentSymbol, currentResolution);
+            connectDeltaWebSocket();
             fetchDashboardState();
             setInterval(fetchDashboardState, 3000);
         };
@@ -1075,22 +1352,59 @@ INDEX_HTML = """<!DOCTYPE html>
 
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        # Silence verbose request logs
         return
 
     def do_GET(self):
         url = urlparse(self.path)
+        qs = parse_qs(url.query)
+
         if url.path == "/":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(INDEX_HTML.encode("utf-8"))
+
+        elif url.path == "/lightweight-charts.js":
+            if JS_LIB_PATH.exists():
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript")
+                self.end_headers()
+                self.wfile.write(JS_LIB_PATH.read_bytes())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        elif url.path == "/api/candles":
+            symbol = qs.get("symbol", ["BTCUSD"])[0].upper()
+            resolution = qs.get("resolution", ["5m"])[0]
+
+            now = int(time.time())
+            start = now - (86400 * 3)  # 3 days of candles
+            raw = client.get_candles(symbol, resolution=resolution, start=start, end=now)
+            
+            # Format candles for Lightweight Charts
+            formatted = []
+            for c in raw:
+                formatted.append({
+                    "time": int(c["time"]),
+                    "open": float(c["open"]),
+                    "high": float(c["high"]),
+                    "low": float(c["low"]),
+                    "close": float(c["close"]),
+                    "volume": float(c.get("volume", 0.0)),
+                })
+            formatted.sort(key=lambda x: x["time"])
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"candles": formatted}).encode("utf-8"))
+
         elif url.path == "/api/state":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
 
-            # Format open positions
             positions = []
             for t_id, pos in paper_engine.open_positions.items():
                 cur_ltp = market_cache.get(pos.symbol, {}).get("ltp", pos.entry_price)
@@ -1106,7 +1420,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "pnl": pos.current_pnl(cur_ltp),
                 })
 
-            # History trades from ledger
             with ledger._get_conn() as conn:
                 rows = conn.execute(
                     "SELECT * FROM trades WHERE status='CLOSED' ORDER BY id DESC LIMIT 10"
@@ -1184,7 +1497,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def start_server(port: int = 8085):
-    # Start market cache background updater
     t = threading.Thread(target=update_market_cache, daemon=True)
     t.start()
 
