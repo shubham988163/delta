@@ -1,8 +1,9 @@
 """State-of-the-art Web Application & Dashboard for Delta Exchange Trading System.
 
 Features:
-- Native Real-Time Candlestick Chart powered directly by Delta Exchange WebSocket & Historical Candles
+- Native Real-Time Candlestick Chart in Local IST (Indian Standard Time, UTC +5:30)
 - Live Ticker & Orderbook Stream from wss://socket.india.delta.exchange
+- Live Candle formation with countdown timer to next bar
 - Delta Exchange verified account info (UID 67545338, live balance $80.70)
 - Zero-risk paper trading execution & PnL tracking
 - Real-time Open Positions table with instant manual close
@@ -21,6 +22,7 @@ from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+from zoneinfo import ZoneInfo
 
 from trading.config import (
     TRADING_MODE,
@@ -58,6 +60,7 @@ last_scan_time = None
 is_scanning = False
 
 JS_LIB_PATH = Path(__file__).parent / "lightweight-charts.js"
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def update_market_cache():
@@ -75,7 +78,7 @@ def update_market_cache():
                     "ltp": ltp,
                     "bid": bid,
                     "ask": ask,
-                    "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+                    "updated_at": datetime.now(IST).strftime("%H:%M:%S IST"),
                 }
             if router.mode == "paper":
                 paper_engine.evaluate_ticks(live_prices)
@@ -111,7 +114,7 @@ def run_strategy_scan():
                     if len(latest_signals) > 30:
                         latest_signals.pop()
                     break
-        last_scan_time = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        last_scan_time = datetime.now(IST).strftime("%H:%M:%S IST")
     finally:
         is_scanning = False
 
@@ -122,7 +125,7 @@ INDEX_HTML = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delta Quant — Real-Time Algorithmic Trading Terminal</title>
-    <meta name="description" content="Direct Real-Time WebSocket Trading Terminal for Delta Exchange with Live Candles and Risk Engine.">
+    <meta name="description" content="Direct Real-Time WebSocket Trading Terminal for Delta Exchange with Live Candles in IST and Risk Engine.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -172,7 +175,7 @@ INDEX_HTML = """<!DOCTYPE html>
             top: 0;
             z-index: 100;
             backdrop-filter: blur(16px);
-            background: rgba(7, 9, 14, 0.88);
+            background: rgba(7, 9, 14, 0.92);
             border-bottom: 1px solid var(--border);
             padding: 12px 24px;
             display: flex;
@@ -216,7 +219,7 @@ INDEX_HTML = """<!DOCTYPE html>
         .header-meta {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
         }
 
         .badge {
@@ -235,6 +238,13 @@ INDEX_HTML = """<!DOCTYPE html>
             background: rgba(16, 185, 129, 0.12);
             color: var(--accent-green);
             border-color: rgba(16, 185, 129, 0.35);
+        }
+
+        .badge-tz {
+            background: rgba(245, 158, 11, 0.12);
+            color: var(--accent-amber);
+            border-color: rgba(245, 158, 11, 0.35);
+            font-family: var(--font-mono);
         }
 
         .badge-paper {
@@ -406,13 +416,8 @@ INDEX_HTML = """<!DOCTYPE html>
             transition: color 0.3s;
         }
 
-        .ticker-price.flash-green {
-            color: var(--accent-green) !important;
-        }
-
-        .ticker-price.flash-red {
-            color: var(--accent-red) !important;
-        }
+        .ticker-price.flash-green { color: var(--accent-green) !important; }
+        .ticker-price.flash-red { color: var(--accent-red) !important; }
 
         .ticker-meta {
             font-size: 11px;
@@ -480,17 +485,20 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: center;
             justify-content: space-between;
             padding: 10px 16px;
-            background: rgba(14, 19, 31, 0.9);
+            background: rgba(14, 19, 31, 0.95);
             border-bottom: 1px solid var(--border);
             font-size: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
         }
 
         .chart-legend {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             font-family: var(--font-mono);
             font-size: 12px;
+            flex-wrap: wrap;
         }
 
         .chart-canvas-container {
@@ -511,14 +519,14 @@ INDEX_HTML = """<!DOCTYPE html>
         .chart-watermark-symbol {
             font-size: 32px;
             font-weight: 800;
-            color: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.04);
             letter-spacing: -0.03em;
         }
 
         .chart-watermark-feed {
             font-size: 11px;
             font-weight: 600;
-            color: rgba(56, 189, 248, 0.4);
+            color: rgba(56, 189, 248, 0.35);
             letter-spacing: 0.08em;
             text-transform: uppercase;
         }
@@ -650,6 +658,7 @@ INDEX_HTML = """<!DOCTYPE html>
         .text-green { color: var(--accent-green); }
         .text-red { color: var(--accent-red); }
         .text-cyan { color: var(--accent-cyan); }
+        .text-amber { color: var(--accent-amber); }
     </style>
 </head>
 <body>
@@ -660,11 +669,14 @@ INDEX_HTML = """<!DOCTYPE html>
             <div class="brand-logo">&#916;</div>
             <div>
                 <div class="brand-title">DELTA QUANT</div>
-                <div class="brand-subtitle">Real-Time Derivatives Engine</div>
+                <div class="brand-subtitle">Real-Time Indian Market (IST) & Delta Exchange</div>
             </div>
         </div>
 
         <div class="header-meta">
+            <div class="badge badge-tz">
+                <span>&#128338; LOCAL TIME (IST): <strong id="clockIST">--:--:--</strong></span>
+            </div>
             <div class="badge badge-live-stream" id="wsConnectionBadge">
                 <div class="dot-indicator"></div>
                 <span id="wsStatusText">DELTA WS: CONNECTED</span>
@@ -721,15 +733,15 @@ INDEX_HTML = """<!DOCTYPE html>
             <!-- Left: Native Real-Time Delta Candlestick Chart & Positions -->
             <div style="display:flex; flex-direction:column; gap:20px;">
 
-                <!-- Real-Time Candlestick Chart -->
+                <!-- Real-Time Candlestick Chart in IST -->
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
                             <span>Delta Exchange Live Candlestick Feed</span>
                             <span class="badge badge-live-stream" style="font-size:10px;" id="chartSymbolBadge">BTCUSD &bull; 5m</span>
+                            <span class="badge badge-tz" style="font-size:10px;">IST (UTC+5:30)</span>
                         </div>
                         <div style="display:flex; gap:6px;">
-                            <!-- Timeframe buttons -->
                             <button class="btn btn-outline btn-sm" id="tf_1m" onclick="switchTimeframe('1m')">1m</button>
                             <button class="btn btn-outline btn-sm active" id="tf_5m" onclick="switchTimeframe('5m')">5m</button>
                             <button class="btn btn-outline btn-sm" id="tf_15m" onclick="switchTimeframe('15m')">15m</button>
@@ -749,14 +761,16 @@ INDEX_HTML = """<!DOCTYPE html>
                                     <span>C: <span id="legC" class="text-cyan">--</span></span>
                                     <span>LTP: <strong id="legLTP" class="text-green" style="font-size:13px;">--</strong></span>
                                 </div>
-                                <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:11px; color:var(--text-muted);">EMA 200: <span style="color:#F59E0B;" id="legEma200">--</span></span>
+                                <div style="display:flex; align-items:center; gap:12px; font-family:var(--font-mono); font-size:11px;">
+                                    <span style="color:var(--text-muted);">Active Candle: <strong id="activeCandleTime" style="color:#fff;">--</strong></span>
+                                    <span style="color:var(--text-muted);">Next Candle: <strong id="candleCountdown" class="text-amber">--</strong></span>
+                                    <span style="color:var(--text-muted);">EMA 200: <strong style="color:#F59E0B;" id="legEma200">--</strong></span>
                                 </div>
                             </div>
                             
                             <div class="chart-watermark">
                                 <div class="chart-watermark-symbol" id="watermarkSym">BTCUSD</div>
-                                <div class="chart-watermark-feed">&#9679; DIRECT DELTA EXCHANGE WEBSOCKET</div>
+                                <div class="chart-watermark-feed">&#9679; DELTA EXCHANGE LIVE &bull; INDIAN STANDARD TIME (IST)</div>
                             </div>
 
                             <div class="chart-canvas-container" id="chartContainer"></div>
@@ -808,7 +822,7 @@ INDEX_HTML = """<!DOCTYPE html>
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Time (UTC)</th>
+                                        <th>Time (IST)</th>
                                         <th>Symbol</th>
                                         <th>Side</th>
                                         <th>Contracts</th>
@@ -931,9 +945,12 @@ INDEX_HTML = """<!DOCTYPE html>
 
     </div>
 
-    <!-- Charting & Real-Time WebSocket Logic -->
+    <!-- Charting & Real-Time WebSocket Logic (with IST timezone offset) -->
     <script>
         const WATCHLIST = ["BTCUSD", "ETHUSD", "AAPLXUSD", "NVDAXUSD", "TSLAXUSD"];
+        // IST Offset is +5 hours 30 mins = 19,800 seconds
+        const IST_OFFSET_SECONDS = 19800;
+
         let currentSymbol = "BTCUSD";
         let currentResolution = "5m";
         let chart = null;
@@ -943,7 +960,35 @@ INDEX_HTML = """<!DOCTYPE html>
         let deltaSocket = null;
         let previousPrices = {};
 
-        // 1. Initialize Lightweight Charts
+        function getResolutionSeconds(res) {
+            if (res === "1m") return 60;
+            if (res === "5m") return 300;
+            if (res === "15m") return 900;
+            if (res === "1h") return 3600;
+            if (res === "1d") return 86400;
+            return 300;
+        }
+
+        function formatIST(timestampSeconds) {
+            const date = new Date(timestampSeconds * 1000);
+            return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+        }
+
+        // Clock & Countdown ticker
+        setInterval(() => {
+            const now = new Date();
+            const istTimeStr = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+            document.getElementById("clockIST").innerText = istTimeStr;
+
+            const interval = getResolutionSeconds(currentResolution);
+            const nowSec = Math.floor(now.getTime() / 1000);
+            const remaining = interval - (nowSec % interval);
+            const remMin = Math.floor(remaining / 60);
+            const remSec = remaining % 60;
+            document.getElementById("candleCountdown").innerText = `${remMin}:${remSec < 10 ? '0' : ''}${remSec}`;
+        }, 1000);
+
+        // 1. Initialize Lightweight Charts with IST-friendly scale
         function initChart() {
             const container = document.getElementById("chartContainer");
             container.innerHTML = "";
@@ -998,7 +1043,6 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
             });
 
-            // Crosshair move listener for OHLC legend
             chart.subscribeCrosshairMove(param => {
                 if (!param || !param.time || !param.seriesData.get(candleSeries)) {
                     updateLegendWithLatest();
@@ -1011,6 +1055,10 @@ INDEX_HTML = """<!DOCTYPE html>
                 document.getElementById("legC").innerText = Number(data.close).toFixed(2);
                 const emaVal = param.seriesData.get(ema200Series);
                 document.getElementById("legEma200").innerText = emaVal ? Number(emaVal.value).toFixed(2) : "--";
+
+                // Subtract IST offset to get original UTC time for display
+                const origUtcTime = param.time - IST_OFFSET_SECONDS;
+                document.getElementById("activeCandleTime").innerText = formatIST(origUtcTime);
             });
         }
 
@@ -1022,20 +1070,32 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById("legL").innerText = Number(currentBar.low).toFixed(2);
             document.getElementById("legC").innerText = Number(currentBar.close).toFixed(2);
             document.getElementById("legLTP").innerText = "$" + Number(currentBar.close).toLocaleString("en-US", {minimumFractionDigits: 2});
+
+            const origUtcTime = currentBar.time - IST_OFFSET_SECONDS;
+            document.getElementById("activeCandleTime").innerText = formatIST(origUtcTime) + " (Active)";
         }
 
-        // 2. Load Historical Candles from Delta REST API
+        // 2. Load Historical Candles from Delta REST API with IST offset applied
         async function loadHistoricalCandles(symbol, resolution) {
             try {
                 const res = await fetch(`/api/candles?symbol=${symbol}&resolution=${resolution}`);
                 const data = await res.json();
                 if (data.candles && data.candles.length > 0) {
-                    candleSeries.setData(data.candles);
-                    currentBar = data.candles[data.candles.length - 1];
+                    // Shift timestamp by IST offset so lightweight charts time axis displays Indian Standard Time!
+                    const istCandles = data.candles.map(c => ({
+                        time: c.time + IST_OFFSET_SECONDS,
+                        open: c.open,
+                        high: c.high,
+                        low: c.low,
+                        close: c.close,
+                    }));
+
+                    candleSeries.setData(istCandles);
+                    currentBar = Object.assign({}, istCandles[istCandles.length - 1]);
 
                     // Calculate 200 EMA
-                    if (data.candles.length >= 50) {
-                        const emaData = calculateEMA(data.candles, Math.min(200, Math.floor(data.candles.length / 2)));
+                    if (istCandles.length >= 30) {
+                        const emaData = calculateEMA(istCandles, Math.min(200, Math.floor(istCandles.length / 2)));
                         ema200Series.setData(emaData);
                     }
                     chart.timeScale().fitContent();
@@ -1070,13 +1130,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 document.getElementById("wsStatusText").innerText = "DELTA WS: LIVE FEED ACTIVE";
                 document.getElementById("wsConnectionBadge").className = "badge badge-live-stream";
 
-                // Subscribe to live tickers & 1m/5m candlesticks for watchlist
                 const subMsg = {
                     type: "subscribe",
                     payload: {
                         channels: [
-                            { name: "v2/ticker", symbols: WATCHLIST },
-                            { name: "candlestick_1m", symbols: WATCHLIST }
+                            { name: "v2/ticker", symbols: WATCHLIST }
                         ]
                     }
                 };
@@ -1087,37 +1145,37 @@ INDEX_HTML = """<!DOCTYPE html>
                 try {
                     const msg = JSON.parse(event.data);
 
-                    // A. Live Ticker Event
                     if (msg.type === "v2/ticker" || msg.symbol) {
                         const sym = msg.symbol;
                         const ltp = parseFloat(msg.close || msg.mark_price || 0);
                         if (sym && ltp > 0) {
                             updateTickerStripCard(sym, ltp, msg.quotes);
 
-                            // If this ticker is the active chart symbol, update the current candle
-                            if (sym === currentSymbol && currentBar) {
-                                currentBar.close = ltp;
-                                currentBar.high = Math.max(currentBar.high, ltp);
-                                currentBar.low = Math.min(currentBar.low, ltp);
+                            if (sym === currentSymbol && candleSeries && currentBar) {
+                                const nowUtc = Math.floor(Date.now() / 1000);
+                                const interval = getResolutionSeconds(currentResolution);
+                                const currentBucketUtc = Math.floor(nowUtc / interval) * interval;
+                                const currentBucketLocal = currentBucketUtc + IST_OFFSET_SECONDS;
+
+                                if (currentBar.time < currentBucketLocal) {
+                                    // New candle interval reached in IST!
+                                    currentBar = {
+                                        time: currentBucketLocal,
+                                        open: ltp,
+                                        high: ltp,
+                                        low: ltp,
+                                        close: ltp,
+                                    };
+                                } else {
+                                    currentBar.close = ltp;
+                                    currentBar.high = Math.max(currentBar.high, ltp);
+                                    currentBar.low = Math.min(currentBar.low, ltp);
+                                }
+
                                 candleSeries.update(currentBar);
                                 updateLegendWithLatest();
                             }
                         }
-                    }
-
-                    // B. Native Candlestick Event from Delta
-                    if (msg.type === "candlestick_1m" && msg.symbol === currentSymbol) {
-                        const barTime = Math.floor(msg.timestamp / 1000000 / 60) * 60;
-                        const candleUpdate = {
-                            time: barTime,
-                            open: parseFloat(msg.open),
-                            high: parseFloat(msg.high),
-                            low: parseFloat(msg.low),
-                            close: parseFloat(msg.close)
-                        };
-                        currentBar = candleUpdate;
-                        candleSeries.update(candleUpdate);
-                        updateLegendWithLatest();
                     }
                 } catch (e) {
                     console.error("Error processing WS frame:", e);
@@ -1166,7 +1224,6 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById("legSym").innerText = sym;
             document.getElementById("orderSymbol").value = sym;
 
-            // Update active state in ticker strip
             WATCHLIST.forEach(s => {
                 const card = document.getElementById("card_" + s);
                 if (card) card.className = "ticker-card" + (s === sym ? " active" : "");
@@ -1185,7 +1242,6 @@ INDEX_HTML = """<!DOCTYPE html>
             loadHistoricalCandles(currentSymbol, res);
         }
 
-        // Render Ticker Strip Cards
         function initTickerStrip() {
             const strip = document.getElementById("tickerStrip");
             strip.innerHTML = WATCHLIST.map(sym => `
@@ -1203,7 +1259,6 @@ INDEX_HTML = """<!DOCTYPE html>
             `).join("");
         }
 
-        // Dashboard State Poller (for Positions, Ledger, Balance)
         async function fetchDashboardState() {
             try {
                 const res = await fetch("/api/state");
@@ -1224,7 +1279,6 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById("valPositionCount").innerHTML = data.open_positions.length + ' <span style="font-size:16px; color:var(--text-muted);">/ 3 Max</span>';
             document.getElementById("valTradesCount").innerText = "Trades today: " + data.trade_count;
 
-            // Positions Table
             const posBody = document.getElementById("positionsTableBody");
             if (data.open_positions.length === 0) {
                 posBody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:28px;">No active open positions. The bot will open positions upon breakout signal.</td></tr>`;
@@ -1252,14 +1306,13 @@ INDEX_HTML = """<!DOCTYPE html>
                 }).join("");
             }
 
-            // History Table
             const histBody = document.getElementById("historyTableBody");
             if (data.history && data.history.length > 0) {
                 histBody.innerHTML = data.history.map(h => {
                     const rPnl = Number(h.realized_pnl);
                     const pnlClass = rPnl >= 0 ? "text-green" : "text-red";
                     const sideClass = h.side === "BUY" ? "pill-buy" : "pill-sell";
-                    const timeStr = h.timestamp ? h.timestamp.split("T")[1]?.split(".")[0] : "";
+                    const timeStr = h.timestamp ? new Date(h.timestamp).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }) : "";
                     return `
                         <tr>
                             <td>${timeStr}</td>
@@ -1275,7 +1328,6 @@ INDEX_HTML = """<!DOCTYPE html>
                 }).join("");
             }
 
-            // Signals Feed
             if (data.signals && data.signals.length > 0) {
                 const sigList = document.getElementById("signalsList");
                 sigList.innerHTML = data.signals.map(s => `
@@ -1382,7 +1434,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             start = now - (86400 * 3)  # 3 days of candles
             raw = client.get_candles(symbol, resolution=resolution, start=start, end=now)
             
-            # Format candles for Lightweight Charts
             formatted = []
             for c in raw:
                 formatted.append({
